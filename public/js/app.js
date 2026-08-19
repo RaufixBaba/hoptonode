@@ -611,6 +611,7 @@ async function renderServer(id, tab) {
                   <td>${esc(b.name || b.file)}</td><td>${fmtBytes(b.size)}</td>
                   <td>${new Date(b.createdAt).toLocaleString("tr-TR")}</td>
                   <td>
+                    <button class="btn btn-primary btn-sm" data-dlb="${b.id}">İndir</button>
                     <button class="btn btn-ghost btn-sm" data-res="${b.id}">Geri yükle</button>
                     <button class="btn btn-danger btn-sm" data-delb="${b.id}">Sil</button>
                   </td>
@@ -634,6 +635,26 @@ async function renderServer(id, tab) {
         try {
           await api(`/api/servers/${s.id}/backups/${b.dataset.res}/restore`, { method: "POST", body: {} });
           toast("Geri yüklendi");
+        } catch (err) {
+          toast(err.message);
+        }
+      };
+    });
+    document.querySelectorAll("[data-dlb]").forEach((b) => {
+      b.onclick = async () => {
+        try {
+          const res = await fetch(`/api/servers/${s.id}/backups/${b.dataset.dlb}/download`, {
+            headers: token() ? { Authorization: "Bearer " + token() } : {},
+            credentials: "same-origin",
+          });
+          if (!res.ok) throw new Error("İndirilemedi");
+          const blob = await res.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = (s.name || "sunucu") + "-" + b.dataset.dlb + ".tar.gz";
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+          toast("Yedek indirildi");
         } catch (err) {
           toast(err.message);
         }

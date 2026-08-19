@@ -444,8 +444,14 @@ app.patch("/api/servers/:id", requireAuth, async (req, res) => {
     if (req.body.port) server.port = Number(req.body.port);
   }
   if (req.body.env && typeof req.body.env === "object") server.env = { ...server.env, ...req.body.env };
-  if (req.body.port) {
+  const portChanged = !!req.body.port;
+  if (portChanged) {
     const egg = getEgg(server.eggId);
+    try {
+      runtime.writeListenPort(runtime.ensureServerFiles(server), server.port);
+    } catch {
+      /* */
+    }
     try {
       const tun = await playit.createTunnel({
         name: server.name,
@@ -455,6 +461,16 @@ app.patch("/api/servers/:id", requireAuth, async (req, res) => {
       if (tun && tun.address) server.joinAddress = tun.address;
     } catch {
       /* keep old */
+    }
+    if (runtime.statusOf(server.id) === "running") {
+      runtime.stopServer(server.id);
+      setTimeout(() => {
+        try {
+          runtime.startServer(server);
+        } catch {
+          /* */
+        }
+      }, 1800);
     }
   }
   servers.save(list);
