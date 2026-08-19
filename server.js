@@ -149,10 +149,30 @@ function issueSession(req, res, user) {
   return token;
 }
 
+let cachedPublicIp = null;
+function publicIp() {
+  if (cachedPublicIp) return cachedPublicIp;
+  return new Promise((resolve) => {
+    const https = require("https");
+    https
+      .get("https://api.ipify.org", (r) => {
+        let d = "";
+        r.on("data", (c) => (d += c));
+        r.on("end", () => {
+          cachedPublicIp = String(d || "").trim() || null;
+          resolve(cachedPublicIp);
+        });
+      })
+      .on("error", () => resolve(null));
+  });
+}
+publicIp();
+
 function decorate(server) {
   const egg = getEgg(server.eggId);
   const owner = users.all().find((u) => u.id === server.ownerId);
   const stats = runtime.statsOf(server);
+  const ip = cachedPublicIp || "pending";
   return {
     ...server,
     status: stats.status,
@@ -161,6 +181,7 @@ function decorate(server) {
       : null,
     owner: owner ? { id: owner.id, username: owner.username, displayName: owner.displayName } : null,
     stats,
+    address: `${ip}:${server.port}`,
   };
 }
 
@@ -315,10 +336,9 @@ app.get("/api/servers", requireAuth, (req, res) => {
 app.post("/api/servers", requireAuth, (req, res) => {
   const egg = getEgg(req.body.eggId);
   if (!egg) return res.status(400).json({ error: "Geçersiz yumurta" });
-  const name = String(req.body.name || "").trim();
-  if (name.length < 2 || name.length > 32) {
-    return res.status(400).json({ error: "Sunucu adı 2-32 karakter olmalı" });
-  }
+  let name = String(req.body.name || "").trim();
+  if (name.length < 2) name = "sunucu-" + Date.now().toString(36).slice(-6);
+  if (name.length > 32) name = name.slice(0, 32);
 
   const cfg = settings.all();
   const staff = ["founder", "admin"].includes(req.user.role) && cfg.staffUnlimited;
@@ -365,7 +385,7 @@ app.post("/api/servers", requireAuth, (req, res) => {
     uuid: crypto.randomUUID(),
     subusers: [],
     allocations: [],
-    autoStart: !!req.body.autoStart,
+    autoStart: req.body.autoStart !== false,
   };
   const list = servers.all();
   list.push(server);

@@ -1,6 +1,19 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const TOKEN_KEY = "hn_token";
 
+function siteBase() {
+  let p = location.pathname || "/";
+  if (p.endsWith("index.html")) p = p.slice(0, -10);
+  if (!p.endsWith("/")) {
+    const last = p.split("/").pop() || "";
+    p = last.includes(".") ? p.replace(/[^/]+$/, "") : p + "/";
+  }
+  return p;
+}
+function asset(p) {
+  return siteBase() + String(p).replace(/^\//, "");
+}
+
 const state = {
   me: null,
   meta: null,
@@ -36,6 +49,18 @@ async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (!opts.raw) headers["Content-Type"] = "application/json";
   if (token()) headers.Authorization = "Bearer " + token();
+  if (window.HN_STATIC && window.hnMock) {
+    try {
+      return await window.hnMock(path, { ...opts, headers });
+    } catch (err) {
+      if (String(err.message).includes("Oturum")) {
+        setToken("");
+        state.me = null;
+        location.hash = "#/login";
+      }
+      throw err;
+    }
+  }
   const res = await fetch(path, {
     credentials: "same-origin",
     ...opts,
@@ -134,7 +159,7 @@ function shell(inner, extra = "") {
   return `
     <div class="shell ${extra}">
       <aside class="sidebar">
-        <a class="brand" href="#/" style="margin:4px 8px 16px"><img src="/assets/logo.png" alt="">HoptoNode</a>
+        <a class="brand" href="#/" style="margin:4px 8px 16px"><img src="${asset("assets/logo.png")}" alt="">HoptiNode</a>
         <nav class="nav">${navItems()}</nav>
         <div class="side-foot">
           <div class="who">
@@ -155,14 +180,14 @@ function renderLanding() {
   $("#app").innerHTML = `
     <div class="land">
       <header class="land-top">
-        <a class="brand" href="#/"><img src="/assets/logo.png" alt="">HoptoNode</a>
+        <a class="brand" href="#/"><img src="${asset("assets/logo.png")}" alt="">HoptiNode</a>
         <div>
           <a class="btn btn-ghost" href="#/login">Giriş</a>
           <a class="btn btn-primary" href="#/register">Kayıt ol</a>
         </div>
       </header>
       <section class="land-hero">
-        <h1>Kontrol paneli.<br><span>HoptoNode.</span></h1>
+        <h1>Kontrol paneli.<br><span>HoptiNode.</span></h1>
         <p>Java, Paper, Fabric, Forge, Bedrock ve PocketMine sunucularını tek yerden oluştur, başlat, dosyalarını yönet.</p>
         <div class="land-cta">
           <a class="btn btn-primary" href="#/register">Hesap oluştur</a>
@@ -179,23 +204,11 @@ function renderLanding() {
 async function paintTunnels() {
   const box = $("#tunnelBox");
   if (!box) return;
-  try {
-    const data = await fetch("/api/tunnels").then((r) => r.json());
-    const live = (data.tunnels || []).filter((t) => t.ok);
-    if (!live.length) {
-      box.innerHTML = `<div class="hint">Dış tünel şu an kapalı. Bu sayfa (8080 önizleme) çalışıyorsa panele buradan gir. Bekçi 8 sn'de bir yeniden bağlar.</div>`;
-      return;
-    }
-    box.innerHTML = `<div class="lbl" style="color:var(--faint);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Canlı dış adres</div>
-      ${live
-        .map(
-          (t) =>
-            `<div style="margin:6px 0"><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.url)}</a> <span class="badge st-running">açık</span></div>`
-        )
-        .join("")}`;
-  } catch {
-    box.innerHTML = `<div class="hint">Tünel durumu okunamadı.</div>`;
+  if (window.HN_STATIC) {
+    box.innerHTML = `<div class="hint">HoptiNode çevrimiçi. Giriş: kurucu / Kurucu#2026</div>`;
+    return;
   }
+  box.innerHTML = "";
 }
 
 function renderAuth(mode) {
@@ -203,7 +216,7 @@ function renderAuth(mode) {
   $("#app").innerHTML = `
     <div class="auth-screen">
       <form class="auth-box" id="authForm">
-        <div class="auth-brand"><img src="/assets/logo.png" alt="">HoptoNode</div>
+        <div class="auth-brand"><img src="${asset("assets/logo.png")}" alt="">HoptiNode</div>
         <h1>${reg ? "Hesap oluştur" : "Panele giriş"}</h1>
         <p class="hint">${reg ? "Kullanıcı adı, e-posta ve parola yeterli." : "Kullanıcı adı veya e-posta ile gir."}</p>
         ${
@@ -249,8 +262,10 @@ function renderAuth(mode) {
       const data = await api(reg ? "/api/auth/register" : "/api/auth/login", { method: "POST", body });
       setToken(data.token);
       state.me = data.user;
-      location.hash = "#/";
-      boot();
+      if (!state.meta) state.meta = { motd: "HoptiNode", me: data.user };
+      else state.meta.me = data.user;
+      if (location.hash === "#/" || location.hash === "#" || !location.hash) route();
+      else location.hash = "#/";
     } catch (err) {
       $("#authErr").textContent = err.message;
     }
@@ -282,7 +297,7 @@ async function renderDashboard() {
       <div class="page-head">
         <div>
           <h1>Gösterge paneli</h1>
-          <p>${esc(state.meta?.motd || "HoptoNode")}</p>
+          <p>${esc(state.meta?.motd || "HoptiNode")}</p>
         </div>
         <a class="btn btn-primary" href="#/create">Sunucu oluştur</a>
       </div>
@@ -336,7 +351,7 @@ function serverTable(list) {
               <div class="hint">${mem}/${s.memoryMb} MB · CPU ${cpu}%</div>
               <div class="bar"><i style="width:${Math.min(100, (mem / Math.max(1, s.memoryMb)) * 100)}%"></i></div>
             </td>
-            <td class="hint">:${s.port}</td>
+            <td class="hint">${esc(s.address || ("play.hoptinode.net:" + s.port))}</td>
             <td><span class="badge st-${esc(s.status)}">${statusLabel(s.status)}</span></td>
             <td>
               ${
@@ -402,144 +417,73 @@ async function renderCreate() {
   if (!state.pickedEgg) state.pickedEgg = "paper";
   const egg = state.eggs.find((e) => e.id === state.pickedEgg) || state.eggs[0];
   state.pickedEgg = egg.id;
-  const step = state.wizard || 1;
+  const prevName = (state.createDraft && state.createDraft.name) || "";
   $("#app").innerHTML = shell(`
     <section class="main">
-      <div class="page-head"><div><h1>Sunucu oluştur</h1><p>Yumurta seç, kaynakları ayarla, oluştur.</p></div></div>
-      <div class="steps">
-        <span class="${step === 1 ? "on" : ""}">1 Yumurta</span>
-        <span class="${step === 2 ? "on" : ""}">2 Kaynak</span>
-        <span class="${step === 3 ? "on" : ""}">3 Değişkenler</span>
-      </div>
+      <div class="page-head"><div><h1>Sunucu oluştur</h1><p>Yumurtayı seç, ad ver, oluştur.</p></div></div>
       <form id="createForm">
-        ${
-          step === 1
-            ? `<div class="eggs">${state.eggs
-                .map(
-                  (e) => `<button type="button" class="egg ${state.pickedEgg === e.id ? "picked" : ""}" data-egg="${e.id}">
-                    <div class="cat">${esc(e.category)}</div><h3>${esc(e.name)}</h3><p>${esc(e.short)}</p></button>`
-                )
-                .join("")}</div>`
-            : ""
-        }
-        ${
-          step === 2
-            ? `<div class="card form-grid">
-                <div class="field"><label>Sunucu adı</label><input name="name" required minlength="2" maxlength="32" placeholder="survival-01"></div>
-                <div class="field"><label>Açıklama</label><input name="description" maxlength="200"></div>
-                <div class="field"><label>RAM (MB)</label><input name="memoryMb" type="number" min="256" step="128" value="1024"></div>
-                <div class="field"><label>CPU (%)</label><input name="cpuPercent" type="number" min="25" step="25" value="100"></div>
-                <div class="field"><label>Disk (MB)</label><input name="diskMb" type="number" min="512" step="512" value="8192"></div>
-                <div class="field"><label>Port (boş = otomatik)</label><input name="port" type="number" min="1024" max="65535"></div>
-                <div class="field full"><label><input type="checkbox" name="autoStart" checked> Oluşturunca başlat</label></div>
-              </div>`
-            : ""
-        }
-        ${
-          step === 3
-            ? `<div class="card">
-                ${(egg.variables || [])
-                  .map(
-                    (v) =>
-                      `<div class="field"><label>${esc(v.name)}</label><input name="env.${v.key}" value="${esc(
-                        v.default || ""
-                      )}"></div>`
-                  )
-                  .join("") || `<p class="hint">Ek değişken yok.</p>`}
-                <div class="field"><label>MOTD</label><input name="motd" value="HoptoNode ${esc(egg.name)}"></div>
-              </div>`
-            : ""
-        }
-        <p class="err" id="createErr"></p>
-        <div style="display:flex;gap:8px;margin-top:12px">
-          ${step > 1 ? `<button type="button" class="btn btn-ghost" id="prev">Geri</button>` : ""}
-          ${step < 3 ? `<button type="button" class="btn btn-primary" id="next">İleri</button>` : `<button class="btn btn-primary" type="submit">Oluştur ve başlat</button>`}
+        <h3 style="font-size:14px;margin:0 0 10px">Yumurta</h3>
+        <div class="eggs">${state.eggs
+          .map(
+            (e) => `<button type="button" class="egg ${state.pickedEgg === e.id ? "picked" : ""}" data-egg="${e.id}">
+              <div class="cat">${esc(e.category)}</div><h3>${esc(e.name)}</h3><p>${esc(e.short)}</p></button>`
+          )
+          .join("")}</div>
+        <div class="card form-grid" style="margin-top:16px">
+          <div class="field"><label>Sunucu adı</label><input name="name" minlength="2" maxlength="32" placeholder="survival-01" value="${esc(prevName)}"></div>
+          <div class="field"><label>Açıklama</label><input name="description" maxlength="200"></div>
+          <div class="field"><label>RAM (MB)</label><input name="memoryMb" type="number" min="256" step="128" value="1024"></div>
+          <div class="field"><label>CPU (%)</label><input name="cpuPercent" type="number" min="25" step="25" value="100"></div>
+          <div class="field"><label>MOTD</label><input name="motd" value="HoptiNode ${esc(egg.name)}"></div>
         </div>
+        <p class="err" id="createErr"></p>
+        <button class="btn btn-primary" type="submit" style="margin-top:12px">Oluştur ve başlat</button>
       </form>
     </section>`);
   bindShell();
   document.querySelectorAll("[data-egg]").forEach((b) => {
     b.onclick = () => {
+      const form = $("#createForm");
+      if (form) state.createDraft = Object.fromEntries(new FormData(form).entries());
       state.pickedEgg = b.dataset.egg;
       renderCreate();
     };
   });
-  const next = $("#next");
-  if (next)
-    next.onclick = () => {
-      state.wizard = step + 1;
-      stashCreate();
-      renderCreate();
-      fillCreate();
-    };
-  const prev = $("#prev");
-  if (prev)
-    prev.onclick = () => {
-      stashCreate();
-      state.wizard = step - 1;
-      renderCreate();
-      fillCreate();
-    };
   $("#createForm").onsubmit = submitCreate;
-}
-
-function stashCreate() {
-  const form = $("#createForm");
-  if (!form) return;
-  state.createDraft = Object.fromEntries(new FormData(form).entries());
-}
-function fillCreate() {
-  if (!state.createDraft) return;
-  const form = $("#createForm");
-  for (const [k, v] of Object.entries(state.createDraft)) {
-    const el = form.elements[k];
-    if (!el) continue;
-    if (el.type === "checkbox") el.checked = true;
-    else el.value = v;
-  }
 }
 
 async function submitCreate(ev) {
   ev.preventDefault();
-  stashCreate();
-  const d = { ...(state.createDraft || {}), ...Object.fromEntries(new FormData(ev.target).entries()) };
+  const fd = new FormData(ev.target);
+  const name = String(fd.get("name") || "").trim() || "sunucu-" + Date.now().toString(36).slice(-5);
   $("#createErr").textContent = "";
-  const env = {};
-  for (const [k, v] of Object.entries(d)) if (k.startsWith("env.")) env[k.slice(4)] = v;
-  if (!d.name || String(d.name).trim().length < 2) {
-    $("#createErr").textContent = "Sunucu adı gerekli";
-    state.wizard = 2;
-    renderCreate();
-    fillCreate();
-    return;
-  }
   try {
     const data = await api("/api/servers", {
       method: "POST",
       body: {
-        name: d.name,
-        description: d.description || "",
-        eggId: state.pickedEgg,
-        memoryMb: Number(d.memoryMb || 1024),
-        cpuPercent: Number(d.cpuPercent || 100),
-        diskMb: Number(d.diskMb || 8192),
-        port: d.port ? Number(d.port) : undefined,
-        env,
-        motd: d.motd,
-        autoStart: d.autoStart === "on" || d.autoStart === true,
+        name,
+        description: fd.get("description") || "",
+        eggId: state.pickedEgg || "paper",
+        memoryMb: Number(fd.get("memoryMb") || 1024),
+        cpuPercent: Number(fd.get("cpuPercent") || 100),
+        diskMb: 8192,
+        motd: fd.get("motd") || name,
+        autoStart: true,
+        env: {},
       },
     });
-    state.wizard = 1;
     state.createDraft = null;
-    toast("Sunucu oluşturuldu");
+    toast("Açıldı: " + (data.server.address || data.server.name));
     location.hash = "#/server/" + data.server.id + "/console";
   } catch (err) {
     $("#createErr").textContent = err.message;
+    toast(err.message);
   }
 }
 
 function connectConsole(id) {
   closeWs();
+  if (window.HN_STATIC) return;
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const q = new URLSearchParams({ server: id });
   if (token()) q.set("token", token());
@@ -573,7 +517,7 @@ async function renderServer(id, tab) {
       <div class="page-head">
         <div>
           <h1>${esc(s.name)}</h1>
-          <p>${esc(egg.name || s.eggId)} · ${s.memoryMb} MB · :${s.port} · ${esc(s.uuid.slice(0, 8))}</p>
+          <p>${esc(egg.name || s.eggId)} · ${s.memoryMb} MB · ${esc(s.address || (":" + s.port))} · ${esc((s.uuid || "").slice(0, 8))}</p>
         </div>
         <div class="power">
           <span class="badge st-${esc(s.status)}">${statusLabel(s.status)}</span>
@@ -628,6 +572,7 @@ async function renderServer(id, tab) {
       $("#cmdInput").value = "";
       try {
         await api(`/api/servers/${s.id}/console`, { method: "POST", body: { command: cmd } });
+        if (window.HN_STATIC) renderServer(s.id, "console");
       } catch (err) {
         toast(err.message);
       }
@@ -700,7 +645,7 @@ async function renderServer(id, tab) {
     closeWs();
     body.innerHTML = `
       <div class="card">
-        <div class="field"><label>Başlangıç komutu</label><input readonly value="${esc(egg.startup || "HoptoNode dahili motor")}"></div>
+        <div class="field"><label>Başlangıç komutu</label><input readonly value="${esc(egg.startup || "HoptiNode dahili motor")}"></div>
         <div class="field"><label>Görüntü</label><input readonly value="${esc(egg.dockerImage || "yerel / dahili")}"></div>
         ${(egg.variables || [])
           .map(
@@ -722,10 +667,24 @@ async function renderServer(id, tab) {
     closeWs();
     body.innerHTML = `
       <div class="card">
-        <div class="field"><label>Birincil tahsis</label><input readonly value="0.0.0.0:${s.port}"></div>
+        <div class="field"><label>Sunucu IP</label>
+          <div style="display:flex;gap:8px">
+            <input id="ipBox" readonly value="${esc(s.address || ("0.0.0.0:" + s.port))}">
+            <button type="button" class="btn btn-primary btn-sm" id="copyIp">Kopyala</button>
+          </div>
+        </div>
         <div class="field"><label>Protokol</label><input readonly value="${esc(egg.protocol || "java")}"></div>
-        <p class="hint">Panel tüneli yalnızca HTTP’dir. Oyun istemcisi bu makinenin ${s.port} portuna bağlanır.</p>
       </div>`;
+    const cip = $("#copyIp");
+    if (cip)
+      cip.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText($("#ipBox").value);
+          toast("IP kopyalandı");
+        } catch {
+          toast($("#ipBox").value);
+        }
+      };
   } else {
     closeWs();
     body.innerHTML = `
@@ -829,16 +788,44 @@ async function renderFiles(id) {
   $("#upFile").onchange = async (ev) => {
     const file = ev.target.files[0];
     if (!file) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("path", pth);
-    const headers = {};
-    if (token()) headers.Authorization = "Bearer " + token();
-    const res = await fetch(`/api/servers/${id}/files/upload`, { method: "POST", body: fd, headers, credentials: "same-origin" });
-    const js = await res.json();
-    if (!res.ok) return toast(js.error || "Yükleme hatası");
-    toast("Yüklendi: " + js.name);
-    renderFiles(id);
+    const dest = pth === "." ? file.name : pth + "/" + file.name;
+    try {
+      if (window.HN_STATIC) {
+        const text = await file.text();
+        await api(`/api/servers/${id}/files/upload`, { method: "POST", body: { path: dest, content: text } });
+      } else {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("path", pth);
+        const headers = {};
+        if (token()) headers.Authorization = "Bearer " + token();
+        const res = await fetch(`/api/servers/${id}/files/upload`, { method: "POST", body: fd, headers, credentials: "same-origin" });
+        const js = await res.json();
+        if (!res.ok) throw new Error(js.error || "Yükleme hatası");
+      }
+      toast("Yüklendi: " + file.name);
+      if (/\.zip$/i.test(file.name) && window.JSZip) {
+        if (confirm(file.name + " açılsın mı?")) {
+          const zip = await JSZip.loadAsync(file);
+          const files = [];
+          const jobs = [];
+          zip.forEach((rel, entry) => {
+            if (entry.dir) return;
+            jobs.push(
+              entry.async("string").then((content) => {
+                files.push({ path: (pth === "." ? rel : pth + "/" + rel), content });
+              })
+            );
+          });
+          await Promise.all(jobs);
+          await api(`/api/servers/${id}/files/extract`, { method: "POST", body: { files } });
+          toast(files.length + " dosya çıkarıldı");
+        }
+      }
+      renderFiles(id);
+    } catch (err) {
+      toast(err.message || "Yükleme hatası");
+    }
   };
 }
 
@@ -1058,12 +1045,19 @@ async function route() {
   }
 }
 
+
 async function boot() {
+  if (location.hostname.indexOf("github.io") !== -1) window.HN_STATIC = true;
+  if (!window.HN_STATIC) {
+    try {
+      const h = await fetch("/api/health", { cache: "no-store" });
+      if (!h.ok) window.HN_STATIC = true;
+    } catch {
+      window.HN_STATIC = true;
+    }
+  }
   try {
-    const headers = {};
-    if (token()) headers.Authorization = "Bearer " + token();
-    const res = await fetch("/api/meta", { headers, credentials: "same-origin" });
-    state.meta = await res.json();
+    state.meta = await api("/api/meta");
     state.me = state.meta.me || null;
     if (!state.me && token()) {
       try {
@@ -1074,7 +1068,8 @@ async function boot() {
         state.me = null;
       }
     }
-  } catch {
+  } catch (e) {
+    console.error(e);
     state.me = null;
   }
   route();
