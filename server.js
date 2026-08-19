@@ -154,7 +154,7 @@ function decorate(server) {
   const egg = getEgg(server.eggId);
   const owner = users.all().find((u) => u.id === server.ownerId);
   const stats = runtime.statsOf(server);
-  const join = playit.addressFor(server);
+  const join = playit.addressFor(server, egg && egg.protocol);
   return {
     ...server,
     status: stats.status,
@@ -178,7 +178,12 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     brand: "HoptiNode",
     time: Date.now(),
-    playit: { configured: p.configured, running: p.running, address: p.address },
+    playit: {
+      configured: p.configured,
+      running: p.running,
+      java: p.javaAddress,
+      bedrock: p.bedrockAddress,
+    },
   });
 });
 

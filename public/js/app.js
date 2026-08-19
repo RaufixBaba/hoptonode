@@ -667,13 +667,17 @@ async function renderServer(id, tab) {
     closeWs();
     body.innerHTML = `
       <div class="card">
-        <div class="field"><label>Giriş adresi (playit.gg)</label>
+        <div class="field"><label>Giriş adresi</label>
           <div style="display:flex;gap:8px">
             <input id="ipBox" readonly value="${esc(s.address || "playit-bekleniyor")}">
             <button type="button" class="btn btn-primary btn-sm" id="copyIp">Kopyala</button>
           </div>
         </div>
-        <p class="hint">${s.joinReady ? "Bu adres Minecraft'tan girilebilir." : "playit tüneli henüz yok. SECRET_KEY bekleniyor."}</p>
+        <p class="hint">${
+          egg.protocol === "bedrock"
+            ? "Bedrock / Nukkit / PocketMine bu adresi kullanır. Playit tünelde Proxy Protocol KAPALI olsun."
+            : "Java / Paper / Fabric / Forge bu adresi kullanır. Ücretsiz planda tüm Java sunucuları aynı adresi paylaşır."
+        }</p>
         <div class="field"><label>Protokol</label><input readonly value="${esc(egg.protocol || "java")}"></div>
       </div>`;
     const cip = $("#copyIp");
