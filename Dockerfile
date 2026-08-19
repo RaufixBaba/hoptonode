@@ -1,7 +1,11 @@
+FROM eclipse-temurin:21-jre-jammy AS jre
 FROM node:20-bookworm-slim
+COPY --from=jre /opt/java/openjdk /opt/java/openjdk
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     php-cli php-xml php-mbstring php-curl php-zip php-sqlite3 php-gd \
-    openjdk-21-jre-headless python3 ca-certificates curl unzip tar \
+    python3 ca-certificates curl unzip tar \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
