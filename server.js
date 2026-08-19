@@ -601,6 +601,10 @@ app.post("/api/servers/:id/files/extract", requireAuth, (req, res) => {
   const server = servers.all().find((s) => s.id === req.params.id);
   if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
   try {
+    if (req.body.path) {
+      const name = runtime.unpackServerArchive(server, String(req.body.path));
+      return res.json({ ok: true, unpacked: name });
+    }
     const root = runtime.ensureServerFiles(server);
     const files = Array.isArray(req.body.files) ? req.body.files : [];
     let count = 0;
@@ -608,7 +612,8 @@ app.post("/api/servers/:id/files/extract", requireAuth, (req, res) => {
       if (!f || !f.path) continue;
       const dest = runtime.safeJoin(root, f.path);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(dest, String(f.content ?? ""));
+      const buf = f.base64 ? Buffer.from(f.base64, "base64") : Buffer.from(String(f.content ?? ""), "utf8");
+      fs.writeFileSync(dest, buf);
       count += 1;
     }
     res.json({ ok: true, count });
@@ -686,12 +691,23 @@ app.post("/api/servers/:id/files/upload", requireAuth, upload.single("file"), (r
     const destDir = runtime.safeJoin(runtime.ensureServerFiles(server), req.body.path || ".");
     fs.mkdirSync(destDir, { recursive: true });
     const base = path.basename(req.file.originalname);
-    fs.writeFileSync(path.join(destDir, base), req.file.buffer);
+    const dest = path.join(destDir, base);
+    fs.writeFileSync(dest, req.file.buffer);
     const egg = getEgg(server.eggId);
     if (egg && egg.id === "pocketmine" && /\.phar$/i.test(base)) {
       fs.writeFileSync(path.join(runtime.ensureServerFiles(server), "PocketMine-MP.phar"), req.file.buffer);
     }
-    res.json({ ok: true, name: base });
+    let unpacked = false;
+    const isArc = /\.(zip|tar\.gz|tgz|tar)$/i.test(base);
+    const intoBackups = path.basename(destDir) === "backups";
+    if (isArc && !intoBackups) {
+      runtime.extractArchiveFile(dest, destDir);
+      unpacked = true;
+    } else if (isArc && intoBackups && /\.zip$/i.test(base)) {
+      runtime.extractArchiveFile(dest, runtime.ensureServerFiles(server));
+      unpacked = true;
+    }
+    res.json({ ok: true, name: base, unpacked });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

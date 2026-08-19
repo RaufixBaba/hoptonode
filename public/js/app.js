@@ -620,7 +620,10 @@ async function renderServer(id, tab) {
     body.innerHTML = `
       <div style="display:flex;justify-content:space-between;margin-bottom:10px">
         <p class="hint" style="margin:0">Sunucu klasörünün tar.gz kopyası.</p>
-        <button class="btn btn-primary btn-sm" id="mkBk">Yedek al</button>
+        <div style="display:flex;gap:8px">
+          <label class="btn btn-ghost btn-sm">Yedek yükle<input type="file" id="upBk" accept=".zip,.tar.gz,.tgz,.tar" hidden></label>
+          <button class="btn btn-primary btn-sm" id="mkBk">Yedek al</button>
+        </div>
       </div>
       <div class="table-wrap"><table class="data">
         <thead><tr><th>Dosya</th><th>Boyut</th><th>Tarih</th><th></th></tr></thead>
@@ -641,6 +644,25 @@ async function renderServer(id, tab) {
               .join("") || `<tr><td colspan="4" class="hint">Yedek yok</td></tr>`
           }
         </tbody></table></div>`;
+    if ($("#upBk"))
+      $("#upBk").onchange = async (ev) => {
+        const file = ev.target.files[0];
+        if (!file) return;
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("path", "backups");
+          const headers = {};
+          if (token()) headers.Authorization = "Bearer " + token();
+          const res = await fetch(`/api/servers/${s.id}/files/upload`, { method: "POST", body: fd, headers, credentials: "same-origin" });
+          const js = await res.json();
+          if (!res.ok) throw new Error(js.error || "Yükleme hatası");
+          toast(js.unpacked ? "Yedek yüklendi ve açıldı" : "Yedek yüklendi");
+          renderServer(s.id, "backups");
+        } catch (err) {
+          toast(err.message);
+        }
+      };
     $("#mkBk").onclick = async () => {
       try {
         await api(`/api/servers/${s.id}/backups`, { method: "POST", body: {} });
@@ -877,7 +899,7 @@ async function renderFiles(id) {
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       ${parent ? `<button class="btn btn-ghost btn-sm" id="upDir">Üst</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="mkDir">Klasör</button>
-      <label class="btn btn-ghost btn-sm">Yükle (phar/jar/zip)<input type="file" id="upFile" hidden></label>
+      <label class="btn btn-ghost btn-sm">Yükle (zip/tar.gz/phar)<input type="file" id="upFile" accept=".zip,.tar,.gz,.tgz,.phar,.jar,*" hidden></label>
       <button class="btn btn-ghost btn-sm" id="selAll">Tümünü seç</button>
       <button class="btn btn-primary btn-sm" id="dlSel">Seçileni arşivle</button>
     </div>
@@ -895,7 +917,11 @@ async function renderFiles(id) {
               }</td>
               <td>${e.type === "dir" ? "—" : fmtBytes(e.size)}</td>
               <td>${new Date(e.mtime).toLocaleString("tr-TR")}</td>
-              <td><button class="linkish" data-del="${esc(e.name)}" style="color:var(--rose)">sil</button></td>
+              <td>${
+                /\.(zip|tgz|gz|tar)$/i.test(e.name)
+                  ? `<button class="linkish" data-unpack="${esc(e.name)}">aç</button> `
+                  : ""
+              }<button class="linkish" data-del="${esc(e.name)}" style="color:var(--rose)">sil</button></td>
             </tr>`
           )
           .join("")}
@@ -915,6 +941,18 @@ async function renderFiles(id) {
   document.querySelectorAll("[data-file]").forEach((b) => {
     b.onclick = () => openFile(id, pth === "." ? b.dataset.file : pth + "/" + b.dataset.file);
   });
+  document.querySelectorAll("[data-unpack]").forEach((b) => {
+    b.onclick = async () => {
+      const rel = pth === "." ? b.dataset.unpack : pth + "/" + b.dataset.unpack;
+      try {
+        await api(`/api/servers/${id}/files/extract`, { method: "POST", body: { path: rel } });
+        toast("Açıldı: " + b.dataset.unpack);
+        renderFiles(id);
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+  });
   document.querySelectorAll("[data-del]").forEach((b) => {
     b.onclick = async () => {
       if (!confirm("Silinsin mi?")) return;
@@ -933,6 +971,7 @@ async function renderFiles(id) {
     const file = ev.target.files[0];
     if (!file) return;
     const dest = pth === "." ? file.name : pth + "/" + file.name;
+    let js = {};
     try {
       if (window.HN_STATIC) {
         const text = await file.text();
@@ -944,28 +983,10 @@ async function renderFiles(id) {
         const headers = {};
         if (token()) headers.Authorization = "Bearer " + token();
         const res = await fetch(`/api/servers/${id}/files/upload`, { method: "POST", body: fd, headers, credentials: "same-origin" });
-        const js = await res.json();
+        js = await res.json();
         if (!res.ok) throw new Error(js.error || "Yükleme hatası");
       }
-      toast("Yüklendi: " + file.name);
-      if (/\.zip$/i.test(file.name) && window.JSZip) {
-        if (confirm(file.name + " açılsın mı?")) {
-          const zip = await JSZip.loadAsync(file);
-          const files = [];
-          const jobs = [];
-          zip.forEach((rel, entry) => {
-            if (entry.dir) return;
-            jobs.push(
-              entry.async("string").then((content) => {
-                files.push({ path: (pth === "." ? rel : pth + "/" + rel), content });
-              })
-            );
-          });
-          await Promise.all(jobs);
-          await api(`/api/servers/${id}/files/extract`, { method: "POST", body: { files } });
-          toast(files.length + " dosya çıkarıldı");
-        }
-      }
+      toast(js && js.unpacked ? "Yüklendi ve açıldı: " + file.name : "Yüklendi: " + file.name);
       renderFiles(id);
     } catch (err) {
       toast(err.message || "Yükleme hatası");
