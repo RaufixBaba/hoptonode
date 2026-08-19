@@ -351,7 +351,7 @@ function serverTable(list) {
               <div class="hint">${mem}/${s.memoryMb} MB · CPU ${cpu}%</div>
               <div class="bar"><i style="width:${Math.min(100, (mem / Math.max(1, s.memoryMb)) * 100)}%"></i></div>
             </td>
-            <td class="hint">${esc(s.address || ("play.hoptinode.net:" + s.port))}</td>
+            <td class="hint">${esc(s.address || "playit-bekleniyor")}</td>
             <td><span class="badge st-${esc(s.status)}">${statusLabel(s.status)}</span></td>
             <td>
               ${
@@ -667,12 +667,13 @@ async function renderServer(id, tab) {
     closeWs();
     body.innerHTML = `
       <div class="card">
-        <div class="field"><label>Sunucu IP</label>
+        <div class="field"><label>Giriş adresi (playit.gg)</label>
           <div style="display:flex;gap:8px">
-            <input id="ipBox" readonly value="${esc(s.address || ("0.0.0.0:" + s.port))}">
+            <input id="ipBox" readonly value="${esc(s.address || "playit-bekleniyor")}">
             <button type="button" class="btn btn-primary btn-sm" id="copyIp">Kopyala</button>
           </div>
         </div>
+        <p class="hint">${s.joinReady ? "Bu adres Minecraft'tan girilebilir." : "playit tüneli henüz yok. SECRET_KEY bekleniyor."}</p>
         <div class="field"><label>Protokol</label><input readonly value="${esc(egg.protocol || "java")}"></div>
       </div>`;
     const cip = $("#copyIp");

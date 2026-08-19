@@ -11,3 +11,5 @@ services:
         value: production
       - key: HOST
         value: 0.0.0.0
+      - key: PLAYIT_SECRET_KEY
+        sync: false

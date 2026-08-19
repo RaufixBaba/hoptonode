@@ -13,6 +13,7 @@ const { WebSocketServer } = require("ws");
 const { EGGS, getEgg } = require("./lib/eggs");
 const { users, servers, sessions, settings, audit, ensureSeed } = require("./lib/seed");
 const runtime = require("./lib/runtime");
+const playit = require("./lib/playit");
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -149,30 +150,11 @@ function issueSession(req, res, user) {
   return token;
 }
 
-let cachedPublicIp = null;
-function publicIp() {
-  if (cachedPublicIp) return cachedPublicIp;
-  return new Promise((resolve) => {
-    const https = require("https");
-    https
-      .get("https://api.ipify.org", (r) => {
-        let d = "";
-        r.on("data", (c) => (d += c));
-        r.on("end", () => {
-          cachedPublicIp = String(d || "").trim() || null;
-          resolve(cachedPublicIp);
-        });
-      })
-      .on("error", () => resolve(null));
-  });
-}
-publicIp();
-
 function decorate(server) {
   const egg = getEgg(server.eggId);
   const owner = users.all().find((u) => u.id === server.ownerId);
   const stats = runtime.statsOf(server);
-  const ip = cachedPublicIp || "pending";
+  const join = playit.addressFor(server);
   return {
     ...server,
     status: stats.status,
@@ -181,7 +163,8 @@ function decorate(server) {
       : null,
     owner: owner ? { id: owner.id, username: owner.username, displayName: owner.displayName } : null,
     stats,
-    address: `${ip}:${server.port}`,
+    address: join || "playit-bekleniyor",
+    joinReady: !!join,
   };
 }
 
@@ -190,7 +173,17 @@ function validUsername(name) {
 }
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, brand: "HoptoNode", time: Date.now() });
+  const p = playit.status();
+  res.json({
+    ok: true,
+    brand: "HoptiNode",
+    time: Date.now(),
+    playit: { configured: p.configured, running: p.running, address: p.address },
+  });
+});
+
+app.get("/api/playit", requireAuth, (_req, res) => {
+  res.json(playit.status());
 });
 
 app.get("/api/tunnels", (_req, res) => {
@@ -778,5 +771,6 @@ wss.on("connection", (ws, req) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`HoptoNode panel  http://${HOST}:${PORT}`);
+  console.log(`HoptiNode panel  http://${HOST}:${PORT}`);
+  playit.start().catch((err) => console.error("playit:", err.message));
 });
