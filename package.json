@@ -1,0 +1,21 @@
+{
+  "name": "hoptonode",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HoptoNode — oyun sunucusu kontrol paneli",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "multer": "^2.0.1",
+    "nanoid": "^3.3.8",
+    "ws": "^8.18.2"
+  }
+}

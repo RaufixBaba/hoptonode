@@ -1,0 +1,9 @@
+node_modules/
+data/*.json
+servers/
+bin/cloudflared
+.arena/
+*.log
+.DS_Store
+.env
+PUBLIC-URL.txt
