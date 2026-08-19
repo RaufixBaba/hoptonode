@@ -159,6 +159,11 @@ function shell(inner, extra = "") {
   const u = state.me;
   return `
     <div class="shell ${extra}">
+      <header class="topbar">
+        <button type="button" class="menu-btn" id="menuBtn" aria-label="Menü"><span></span><span></span><span></span></button>
+        <a class="brand" href="#/"><img src="${asset("assets/logo.png")}" alt="">HoptiNode</a>
+      </header>
+      <div class="nav-scrim" id="navScrim"></div>
       <aside class="sidebar">
         <a class="brand" href="#/" style="margin:4px 8px 16px"><img src="${asset("assets/logo.png")}" alt="">HoptiNode</a>
         <nav class="nav">${navItems()}</nav>
@@ -440,14 +445,19 @@ async function renderCreate() {
             ${
               (egg.gameVersions || []).length
                 ? `<select name="gameVersion">${(egg.gameVersions || [])
-                    .map((v) => `<option value="${esc(v)}" ${v === (egg.protocol === "bedrock" ? "0.14.3" : "1.21.4") ? "selected" : ""}>${esc(v)}</option>`)
+                    .map((v) => {
+                      const def = (egg.variables || []).find((x) => x.key === "MC_VERSION" || x.key === "BDX_VERSION");
+                      const sel = v === ((def && def.default) || (egg.protocol === "bedrock" ? "0.14.3" : "1.21.4"));
+                      return `<option value="${esc(v)}" ${sel ? "selected" : ""}>${esc(v)}</option>`;
+                    })
                     .join("")}<option value="custom">özel…</option></select>
-                   <input name="gameVersionCustom" placeholder="ör. 0.14.3" style="margin-top:6px">`
+                   <input name="gameVersionCustom" placeholder="ör. 1.16.5 veya 0.14.3" style="margin-top:6px">`
                 : `<input name="gameVersion" placeholder="${egg.protocol === "bedrock" ? "0.14.3" : "1.21.4"}">`
             }
           </div>
           <div class="field"><label>Port</label><input name="port" type="number" min="1" max="65535" placeholder="${egg.protocol === "bedrock" ? "19132" : "25565"}"></div>
         </div>
+        <p class="hint">Java sürümü ilk başlatmada indirilir. Konsolda “JAR indiriliyor” ve “Done” görünene kadar bekle, sonra oyundan gir.</p>
         <p class="err" id="createErr"></p>
         <button class="btn btn-primary" type="submit" style="margin-top:12px">Oluştur ve başlat</button>
       </form>

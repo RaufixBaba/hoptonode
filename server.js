@@ -34,10 +34,22 @@ app.use(express.json({ limit: "8mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+const UP_DIR = path.join(os.tmpdir(), "hn-up");
+fs.mkdirSync(UP_DIR, { recursive: true });
 const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 80 * 1024 * 1024 },
+  dest: UP_DIR,
+  limits: { fileSize: 200 * 1024 * 1024 },
 });
+
+function handleUpload(req, res, next) {
+  upload.single("file")(req, res, (err) => {
+    if (err) {
+      const msg = err.code === "LIMIT_FILE_SIZE" ? "Dosya 200 MB üstü" : err.message;
+      return res.status(400).json({ error: msg });
+    }
+    next();
+  });
+}
 
 function publicUser(u) {
   if (!u) return null;
@@ -443,7 +455,17 @@ app.patch("/api/servers/:id", requireAuth, async (req, res) => {
     if (req.body.diskMb) server.diskMb = Math.max(512, Number(req.body.diskMb));
     if (req.body.port) server.port = Number(req.body.port);
   }
-  if (req.body.env && typeof req.body.env === "object") server.env = { ...server.env, ...req.body.env };
+  if (req.body.env && typeof req.body.env === "object") {
+    const prevVer = server.env && server.env.MC_VERSION;
+    server.env = { ...server.env, ...req.body.env };
+    if (req.body.env.MC_VERSION && req.body.env.MC_VERSION !== prevVer) {
+      try {
+        fs.unlinkSync(path.join(runtime.serverDir(server.id), ".hn-mc-version"));
+      } catch {
+        /* */
+      }
+    }
+  }
   const portChanged = !!req.body.port;
   if (portChanged) {
     const egg = getEgg(server.eggId);
@@ -874,7 +896,13 @@ app.patch("/api/admin/settings", requireFounder, (req, res) => {
   res.json({ settings: s });
 });
 
-app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"], maxAge: 0 }));
+app.use((req, res, next) => {
+  if (req.path === "/" || req.path.endsWith(".html") || req.path.endsWith(".js") || req.path.endsWith(".css")) {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  }
+  next();
+});
+app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"], maxAge: 0, etag: false }));
 
 app.get("*", (req, res) => {
   if (req.path.startsWith("/api")) return res.status(404).json({ error: "Yok" });
