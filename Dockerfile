@@ -1,6 +1,7 @@
 FROM node:20-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    php-cli php-xml php-mbstring php-curl php-zip php-sqlite3 php-gd ca-certificates curl unzip tar \
+    php-cli php-xml php-mbstring php-curl php-zip php-sqlite3 php-gd \
+    openjdk-21-jre-headless ca-certificates curl unzip tar \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
