@@ -164,8 +164,8 @@ function decorate(server) {
       : null,
     owner: owner ? { id: owner.id, username: owner.username, displayName: owner.displayName } : null,
     stats,
-    address: join || "playit-bekleniyor",
-    joinReady: !!join,
+    address: server.joinAddress || join || "playit-bekleniyor",
+    joinReady: !!(server.joinAddress || join),
   };
 }
 
@@ -332,7 +332,7 @@ app.get("/api/servers", requireAuth, (req, res) => {
   res.json({ servers: mine.map(decorate) });
 });
 
-app.post("/api/servers", requireAuth, (req, res) => {
+app.post("/api/servers", requireAuth, async (req, res) => {
   const egg = getEgg(req.body.eggId);
   if (!egg) return res.status(400).json({ error: "Geçersiz yumurta" });
   let name = String(req.body.name || "").trim();
@@ -377,7 +377,7 @@ app.post("/api/servers", requireAuth, (req, res) => {
     memoryMb,
     cpuPercent,
     diskMb,
-    port: egg.protocol === "bedrock" ? 19132 : 25565,
+    port: Number(req.body.port) || nextPort(egg.protocol),
     env,
     description: String(req.body.description || "").slice(0, 200),
     createdAt: new Date().toISOString(),
@@ -390,11 +390,18 @@ app.post("/api/servers", requireAuth, (req, res) => {
   list.push(server);
   servers.save(list);
   runtime.ensureServerFiles(server);
+  try {
+    const tun = await playit.createTunnel({ name, protocol: egg.protocol, localPort: server.port });
+    if (tun && tun.address) server.joinAddress = tun.address;
+    else if (tun && tun.error) server.joinNote = tun.error;
+    servers.save(list);
+  } catch (err) {
+    server.joinNote = err.message;
+    servers.save(list);
+  }
   logAudit(req.user.username, "server.create", `${name} (${egg.id})`);
-  const decorated = decorate(server);
   if (server.autoStart) {
     try {
-      runtime.stopOthersOfProtocol(egg.protocol, server.id, servers.all());
       runtime.startServer(server);
     } catch (err) {
       /* still return created */
@@ -422,7 +429,7 @@ app.get("/api/servers/:id/stats", requireAuth, (req, res) => {
   res.json({ stats: runtime.statsOf(server), status: runtime.statusOf(server.id) });
 });
 
-app.patch("/api/servers/:id", requireAuth, (req, res) => {
+app.patch("/api/servers/:id", requireAuth, async (req, res) => {
   const list = servers.all();
   const server = list.find((s) => s.id === req.params.id);
   if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
@@ -437,6 +444,19 @@ app.patch("/api/servers/:id", requireAuth, (req, res) => {
     if (req.body.port) server.port = Number(req.body.port);
   }
   if (req.body.env && typeof req.body.env === "object") server.env = { ...server.env, ...req.body.env };
+  if (req.body.port) {
+    const egg = getEgg(server.eggId);
+    try {
+      const tun = await playit.createTunnel({
+        name: server.name,
+        protocol: egg && egg.protocol,
+        localPort: server.port,
+      });
+      if (tun && tun.address) server.joinAddress = tun.address;
+    } catch {
+      /* keep old */
+    }
+  }
   servers.save(list);
   res.json({ server: decorate(server) });
 });
@@ -629,7 +649,11 @@ app.get("/api/admin/overview", requireStaff, (_req, res) => {
     users: allUsers.map(publicUser),
     servers: allServers.map(decorate),
     audit: audit.all().slice(0, 40),
-    settings: settings.all(),
+    settings: (() => {
+      const s = { ...settings.all() };
+      if (s.playitApiKey) s.playitApiKey = "kayıtlı";
+      return s;
+    })(),
     eggs: EGGS,
   });
 });
@@ -719,6 +743,7 @@ app.patch("/api/admin/settings", requireFounder, (req, res) => {
     "maxCpuPercentUser",
     "staffUnlimited",
     "motd",
+    "playitApiKey",
   ];
   for (const key of allowed) {
     if (req.body[key] !== undefined) s[key] = req.body[key];
@@ -783,5 +808,7 @@ wss.on("connection", (ws, req) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`HoptiNode panel  http://${HOST}:${PORT}`);
+  const s = settings.all();
+  if (s.playitApiKey) playit.setAccountKey(s.playitApiKey);
   playit.start().catch((err) => console.error("playit:", err.message));
 });

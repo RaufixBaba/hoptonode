@@ -1049,6 +1049,9 @@ async function renderAdmin() {
                     <option value="false" ${data.settings.registrationOpen === false ? "selected" : ""}>kapalı</option>
                   </select>
                 </div>
+                <div class="field"><label>Playit hesap API anahtarı</label>
+                  <input name="playitApiKey" placeholder="${data.settings.playitApiKey ? "kayıtlı — değiştirmek için yaz" : "Account API key (Agent secret değil)"}">
+                </div>
                 <button class="btn btn-primary" type="submit">Kaydet</button>
               </form>
             </div>`
@@ -1106,7 +1109,7 @@ async function renderAdmin() {
       const fd = new FormData(sf);
       await api("/api/admin/settings", {
         method: "PATCH",
-        body: { motd: fd.get("motd"), registrationOpen: fd.get("registrationOpen") === "true" },
+        body: { motd: fd.get("motd"), registrationOpen: fd.get("registrationOpen") === "true", playitApiKey: fd.get("playitApiKey") || undefined },
       });
       toast("Ayarlar kaydedildi");
     };
