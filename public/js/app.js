@@ -144,6 +144,7 @@ function subNav(id) {
   const tabs = [
     ["console", "Konsol"],
     ["files", "Dosyalar"],
+    ["content", "Mod / Eklenti"],
     ["backups", "Yedekler"],
     ["startup", "Başlangıç"],
     ["network", "Ağ"],
@@ -589,6 +590,9 @@ async function renderServer(id, tab) {
   } else if (state.tab === "files") {
     closeWs();
     await renderFiles(s.id);
+  } else if (state.tab === "content") {
+    closeWs();
+    await renderContent(s);
   } else if (state.tab === "backups") {
     closeWs();
     const bks = data.backups || [];
@@ -732,6 +736,96 @@ async function renderServer(id, tab) {
   }
 }
 
+async function downloadArchive(id, paths, filename) {
+  const res = await fetch(`/api/servers/${id}/files/archive`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...(token() ? { Authorization: "Bearer " + token() } : {}) },
+    body: JSON.stringify({ paths }),
+  });
+  if (!res.ok) {
+    const js = await res.json().catch(() => ({}));
+    throw new Error(js.error || "Arşiv hatası");
+  }
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename || "arsiv.tar.gz";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+async function renderContent(s) {
+  const installed = await api(`/api/servers/${s.id}/content`);
+  const isBedrock = s.egg && s.egg.protocol === "bedrock";
+  $("#tabBody").innerHTML = `
+    <div class="card" style="margin-bottom:12px">
+      <p class="hint" style="margin:0 0 10px">${
+        isBedrock
+          ? "Poggit gönüllü eklentileri. Kendi .phar dosyanı Dosyalar sekmesinden de yükleyebilirsin (PocketMine-MP.phar)."
+          : "Modrinth sunucu modları / eklentileri. İndir, sil, tekrar kur = güncelle."
+      }</p>
+      <form id="modSearch" style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="modQ" placeholder="${isBedrock ? "eklenti ara…" : "mod ara…"}" style="flex:1;min-width:180px">
+        <button class="btn btn-primary btn-sm" type="submit">Ara</button>
+      </form>
+      <div id="modHits" style="margin-top:12px"></div>
+    </div>
+    <h3 style="font-size:14px;margin:0 0 8px">Yüklü (${esc(installed.folder || "")})</h3>
+    <div class="table-wrap"><table class="data">
+      <thead><tr><th>Dosya</th><th>Boyut</th><th></th></tr></thead>
+      <tbody>
+        ${(installed.items || [])
+          .map(
+            (it) => `<tr>
+              <td>${esc(it.name)}</td><td>${fmtBytes(it.size)}</td>
+              <td><button class="btn btn-danger btn-sm" data-rm="${esc(it.name)}">Sil</button></td>
+            </tr>`
+          )
+          .join("") || `<tr><td colspan="3" class="hint">Boş</td></tr>`}
+      </tbody></table></div>`;
+  $("#modSearch").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const box = $("#modHits");
+    box.innerHTML = `<div class="hint">Aranıyor…</div>`;
+    try {
+      const data = await api(`/api/servers/${s.id}/content/search`, { method: "POST", body: { query: $("#modQ").value } });
+      const hits = data.hits || [];
+      box.innerHTML = hits.length
+        ? hits
+            .map(
+              (h) => `<div style="padding:8px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px;align-items:center">
+                <div><strong>${esc(h.name)}</strong> <span class="hint">${esc(h.version || "")} · ${esc(h.author || "")} · ${h.downloads || 0}</span>
+                <div class="hint">${esc(h.description || "")}</div></div>
+                <button class="btn btn-ok btn-sm" data-src="${esc(h.source)}" data-id="${esc(h.id)}">Kur</button>
+              </div>`
+            )
+            .join("")
+        : `<div class="hint">Sonuç yok</div>`;
+      box.querySelectorAll("[data-src]").forEach((b) => {
+        b.onclick = async () => {
+          try {
+            await api(`/api/servers/${s.id}/content/install`, { method: "POST", body: { source: b.dataset.src, id: b.dataset.id } });
+            toast("Kuruldu");
+            renderContent(s);
+          } catch (err) {
+            toast(err.message);
+          }
+        };
+      });
+    } catch (err) {
+      box.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+    }
+  };
+  document.querySelectorAll("[data-rm]").forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm("Silinsin mi?")) return;
+      await api(`/api/servers/${s.id}/content?name=${encodeURIComponent(b.dataset.rm)}`, { method: "DELETE" });
+      renderContent(s);
+    };
+  });
+}
+
 async function renderFiles(id) {
   const pth = state.filePath || ".";
   const data = await api(`/api/servers/${id}/files?path=${encodeURIComponent(pth)}`);
@@ -741,14 +835,17 @@ async function renderFiles(id) {
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       ${parent ? `<button class="btn btn-ghost btn-sm" id="upDir">Üst</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="mkDir">Klasör</button>
-      <label class="btn btn-ghost btn-sm">Yükle<input type="file" id="upFile" hidden></label>
+      <label class="btn btn-ghost btn-sm">Yükle (phar/jar/zip)<input type="file" id="upFile" hidden></label>
+      <button class="btn btn-ghost btn-sm" id="selAll">Tümünü seç</button>
+      <button class="btn btn-primary btn-sm" id="dlSel">Seçileni arşivle</button>
     </div>
     <div class="files"><table>
-      <thead><tr><th>Ad</th><th>Boyut</th><th>Tarih</th><th></th></tr></thead>
+      <thead><tr><th></th><th>Ad</th><th>Boyut</th><th>Tarih</th><th></th></tr></thead>
       <tbody>
         ${data.entries
           .map(
             (e) => `<tr>
+              <td><input type="checkbox" class="fchk" value="${esc(pth === "." ? e.name : pth + "/" + e.name)}"></td>
               <td>${
                 e.type === "dir"
                   ? `<button class="linkish" data-dir="${esc(e.name)}">${esc(e.name)}/</button>`
@@ -832,6 +929,25 @@ async function renderFiles(id) {
       toast(err.message || "Yükleme hatası");
     }
   };
+  const selAll = $("#selAll");
+  if (selAll)
+    selAll.onclick = () => {
+      const boxes = [...document.querySelectorAll(".fchk")];
+      const on = boxes.some((c) => !c.checked);
+      boxes.forEach((c) => (c.checked = on));
+    };
+  const dlSel = $("#dlSel");
+  if (dlSel)
+    dlSel.onclick = async () => {
+      const paths = [...document.querySelectorAll(".fchk:checked")].map((c) => c.value);
+      if (!paths.length) return toast("Dosya seç");
+      try {
+        await downloadArchive(id, paths, "secilen-arsiv.tar.gz");
+        toast("Arşiv indirildi");
+      } catch (err) {
+        toast(err.message);
+      }
+    };
 }
 
 async function openFile(id, pth) {

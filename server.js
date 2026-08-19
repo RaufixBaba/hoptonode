@@ -14,6 +14,7 @@ const { EGGS, getEgg } = require("./lib/eggs");
 const { users, servers, sessions, settings, audit, ensureSeed } = require("./lib/seed");
 const runtime = require("./lib/runtime");
 const playit = require("./lib/playit");
+const catalog = require("./lib/catalog");
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -376,7 +377,7 @@ app.post("/api/servers", requireAuth, (req, res) => {
     memoryMb,
     cpuPercent,
     diskMb,
-    port: Number(req.body.port) || nextPort(egg.protocol),
+    port: egg.protocol === "bedrock" ? 19132 : 25565,
     env,
     description: String(req.body.description || "").slice(0, 200),
     createdAt: new Date().toISOString(),
@@ -393,6 +394,7 @@ app.post("/api/servers", requireAuth, (req, res) => {
   const decorated = decorate(server);
   if (server.autoStart) {
     try {
+      runtime.stopOthersOfProtocol(egg.protocol, server.id, servers.all());
       runtime.startServer(server);
     } catch (err) {
       /* still return created */
@@ -457,7 +459,11 @@ app.post("/api/servers/:id/power", requireAuth, (req, res) => {
   if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
   const action = req.body.action;
   try {
-    if (action === "start") runtime.startServer(server);
+    if (action === "start") {
+      const egg = getEgg(server.eggId);
+      runtime.stopOthersOfProtocol(egg && egg.protocol, server.id, servers.all());
+      runtime.startServer(server);
+    }
     else if (action === "stop") runtime.stopServer(server.id);
     else if (action === "restart") {
       runtime.stopServer(server.id);
