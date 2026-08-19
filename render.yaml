@@ -1,10 +1,8 @@
 services:
   - type: web
     name: hoptonode
-    runtime: node
+    runtime: docker
     plan: free
-    buildCommand: npm install
-    startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV

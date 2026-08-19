@@ -495,11 +495,7 @@ app.post("/api/servers/:id/power", requireAuth, (req, res) => {
   if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
   const action = req.body.action;
   try {
-    if (action === "start") {
-      const egg = getEgg(server.eggId);
-      runtime.stopOthersOfProtocol(egg && egg.protocol, server.id, servers.all());
-      runtime.startServer(server);
-    }
+    if (action === "start") runtime.startServer(server);
     else if (action === "stop") runtime.stopServer(server.id);
     else if (action === "restart") {
       runtime.stopServer(server.id);
@@ -601,6 +597,87 @@ app.delete("/api/servers/:id/files", requireAuth, (req, res) => {
   }
 });
 
+app.post("/api/servers/:id/files/extract", requireAuth, (req, res) => {
+  const server = servers.all().find((s) => s.id === req.params.id);
+  if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
+  try {
+    const root = runtime.ensureServerFiles(server);
+    const files = Array.isArray(req.body.files) ? req.body.files : [];
+    let count = 0;
+    for (const f of files) {
+      if (!f || !f.path) continue;
+      const dest = runtime.safeJoin(root, f.path);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, String(f.content ?? ""));
+      count += 1;
+    }
+    res.json({ ok: true, count });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/servers/:id/files/archive", requireAuth, (req, res) => {
+  const server = servers.all().find((s) => s.id === req.params.id);
+  if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
+  try {
+    const tmp = runtime.archiveFiles(server, req.body.paths || []);
+    res.download(tmp, (server.name || "sunucu") + "-arsiv.tar.gz", () => {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        /* */
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get("/api/servers/:id/content", requireAuth, (req, res) => {
+  const server = servers.all().find((s) => s.id === req.params.id);
+  if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
+  try {
+    res.json(catalog.listInstalled(server));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/servers/:id/content/search", requireAuth, async (req, res) => {
+  const server = servers.all().find((s) => s.id === req.params.id);
+  if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
+  try {
+    const hits = await catalog.search(String(req.body.query || ""), server);
+    res.json({ hits });
+  } catch (err) {
+    res.status(200).json({ hits: [], error: err.message });
+  }
+});
+
+app.post("/api/servers/:id/content/install", requireAuth, async (req, res) => {
+  const server = servers.all().find((s) => s.id === req.params.id);
+  if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
+  try {
+    const saved = await catalog.install(server, String(req.body.source || "modrinth"), String(req.body.id || ""));
+    logAudit(req.user.username, "content.install", saved.name);
+    res.json({ ok: true, saved });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/servers/:id/content", requireAuth, (req, res) => {
+  const server = servers.all().find((s) => s.id === req.params.id);
+  if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
+  try {
+    catalog.removeInstalled(server, String(req.query.name || req.body.name || ""));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post("/api/servers/:id/files/upload", requireAuth, upload.single("file"), (req, res) => {
   const server = servers.all().find((s) => s.id === req.params.id);
   if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
@@ -608,12 +685,24 @@ app.post("/api/servers/:id/files/upload", requireAuth, upload.single("file"), (r
   try {
     const destDir = runtime.safeJoin(runtime.ensureServerFiles(server), req.body.path || ".");
     fs.mkdirSync(destDir, { recursive: true });
-    const dest = path.join(destDir, path.basename(req.file.originalname));
-    fs.writeFileSync(dest, req.file.buffer);
-    res.json({ ok: true, name: path.basename(req.file.originalname) });
+    const base = path.basename(req.file.originalname);
+    fs.writeFileSync(path.join(destDir, base), req.file.buffer);
+    const egg = getEgg(server.eggId);
+    if (egg && egg.id === "pocketmine" && /\.phar$/i.test(base)) {
+      fs.writeFileSync(path.join(runtime.ensureServerFiles(server), "PocketMine-MP.phar"), req.file.buffer);
+    }
+    res.json({ ok: true, name: base });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.get("/api/servers/:id/backups/:bid/download", requireAuth, (req, res) => {
+  const server = servers.all().find((s) => s.id === req.params.id);
+  if (!canSeeServer(req.user, server)) return res.status(404).json({ error: "Sunucu yok" });
+  const file = runtime.backupFile(server, req.params.bid);
+  if (!file || !fs.existsSync(file)) return res.status(404).json({ error: "Yedek yok" });
+  res.download(file, `${server.name || "sunucu"}-${req.params.bid}.tar.gz`);
 });
 
 app.get("/api/servers/:id/backups", requireAuth, (req, res) => {

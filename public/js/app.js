@@ -436,6 +436,17 @@ async function renderCreate() {
           <div class="field"><label>RAM (MB)</label><input name="memoryMb" type="number" min="256" step="128" value="1024"></div>
           <div class="field"><label>CPU (%)</label><input name="cpuPercent" type="number" min="25" step="25" value="100"></div>
           <div class="field"><label>MOTD</label><input name="motd" value="HoptiNode ${esc(egg.name)}"></div>
+          <div class="field"><label>Oyun sürümü</label>
+            ${
+              (egg.gameVersions || []).length
+                ? `<select name="gameVersion">${(egg.gameVersions || [])
+                    .map((v) => `<option value="${esc(v)}" ${v === (egg.protocol === "bedrock" ? "0.14.3" : "1.21.4") ? "selected" : ""}>${esc(v)}</option>`)
+                    .join("")}<option value="custom">özel…</option></select>
+                   <input name="gameVersionCustom" placeholder="ör. 0.14.3" style="margin-top:6px">`
+                : `<input name="gameVersion" placeholder="${egg.protocol === "bedrock" ? "0.14.3" : "1.21.4"}">`
+            }
+          </div>
+          <div class="field"><label>Port</label><input name="port" type="number" min="1" max="65535" placeholder="${egg.protocol === "bedrock" ? "19132" : "25565"}"></div>
         </div>
         <p class="err" id="createErr"></p>
         <button class="btn btn-primary" type="submit" style="margin-top:12px">Oluştur ve başlat</button>
@@ -451,6 +462,11 @@ async function renderCreate() {
     };
   });
   $("#createForm").onsubmit = submitCreate;
+}
+
+function eggProtocolEnv(eggId, ver) {
+  if (["pocketmine", "nukkit", "bedrock"].includes(eggId)) return { BDX_VERSION: ver };
+  return { MC_VERSION: ver };
 }
 
 async function submitCreate(ev) {
@@ -470,7 +486,12 @@ async function submitCreate(ev) {
         diskMb: 8192,
         motd: fd.get("motd") || name,
         autoStart: true,
-        env: {},
+        port: fd.get("port") ? Number(fd.get("port")) : undefined,
+        env: (() => {
+          const v = String(fd.get("gameVersionCustom") || "").trim() || String(fd.get("gameVersion") || "").trim();
+          if (!v || v === "custom") return {};
+          return eggProtocolEnv(state.pickedEgg, v);
+        })(),
       },
     });
     state.createDraft = null;
